@@ -61,3 +61,11 @@ export declare function mldsa65Sign(seed: Buffer, message: Buffer): Buffer
  * Wrong-length keys / signatures throw (caller bug, not forgery).
  */
 export declare function mldsa65Verify(publicKey: Buffer, signature: Buffer, message: Buffer): boolean
+/**
+ * Verify a `HandshakeRequest` (JSON string) against the Phase 2 chain-walk
+ * verifier. `keys` is `{ did: Buffer(32) }`; the returned JSON string
+ * carries either `{result:"accept", ...}` or `{result:"reject", ...}`.
+ */
+export declare function verifyHandshakeRequestJson(requestJson: string, keys: Record<string, Buffer>, receiverDid: string, nowRfc3339: string, revokedPrincipals?: Array<string> | undefined | null, revokedDelegations?: Array<string> | undefined | null): string
+/** Intersect two capability constraint sets supplied as JSON object strings. */
+export declare function intersectCapabilitiesJson(delegatedJson: string, requestedJson: string): string

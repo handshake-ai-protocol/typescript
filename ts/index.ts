@@ -56,3 +56,6 @@ export function canonicalize(value: unknown): Buffer {
 }
 
 export * as models from "./models.js";
+export * as verify from "./verify.js";
+export { verifyHandshakeRequest, intersectCapabilities } from "./verify.js";
+export type { VerifyResult, VerifyOptions } from "./verify.js";

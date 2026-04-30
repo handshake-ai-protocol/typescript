@@ -12,6 +12,9 @@
 
 #![deny(clippy::all)]
 
+use std::collections::HashMap;
+
+use handshake::verify::{intersect_to_json_string, verify_to_json_string};
 use handshake::{hash, jcs, mldsa, sign};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -164,4 +167,53 @@ pub fn mldsa65_verify(public_key: Buffer, signature: Buffer, message: Buffer) ->
         Err(handshake::Error::SignatureInvalid(_)) => Ok(false),
         Err(other) => Err(Error::new(Status::GenericFailure, other.to_string())),
     }
+}
+
+/// Verify a `HandshakeRequest` (JSON string) against the Phase 2 chain-walk
+/// verifier. `keys` is `{ did: Buffer(32) }`; the returned JSON string
+/// carries either `{result:"accept", ...}` or `{result:"reject", ...}`.
+#[napi]
+pub fn verify_handshake_request_json(
+    request_json: String,
+    keys: std::collections::HashMap<String, Buffer>,
+    receiver_did: String,
+    now_rfc3339: String,
+    revoked_principals: Option<Vec<String>>,
+    revoked_delegations: Option<Vec<String>>,
+) -> Result<String> {
+    let mut key_map: HashMap<String, [u8; 32]> = HashMap::new();
+    for (did, buf) in keys {
+        let slice: &[u8] = buf.as_ref();
+        let arr: [u8; 32] = slice.try_into().map_err(|_| {
+            Error::new(
+                Status::InvalidArg,
+                format!(
+                    "key for DID {did}: expected 32-byte Ed25519 public key, got {} bytes",
+                    slice.len()
+                ),
+            )
+        })?;
+        key_map.insert(did, arr);
+    }
+    let revoked_principals = revoked_principals.unwrap_or_default();
+    let revoked_delegations = revoked_delegations.unwrap_or_default();
+    verify_to_json_string(
+        &request_json,
+        &key_map,
+        &receiver_did,
+        &now_rfc3339,
+        &revoked_principals,
+        &revoked_delegations,
+    )
+    .map_err(|e| Error::new(Status::GenericFailure, format!("verify failed: {e}")))
+}
+
+/// Intersect two capability constraint sets supplied as JSON object strings.
+#[napi]
+pub fn intersect_capabilities_json(
+    delegated_json: String,
+    requested_json: String,
+) -> Result<String> {
+    intersect_to_json_string(&delegated_json, &requested_json)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("intersect failed: {e}")))
 }

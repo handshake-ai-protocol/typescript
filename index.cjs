@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { SPEC_VERSION, canonicalize, sha256, sha256Hex, ed25519KeypairFromSeed, ed25519Sign, ed25519Verify, mldsa65KeypairFromSeed, mldsa65Sign, mldsa65Verify } = nativeBinding
+const { SPEC_VERSION, canonicalize, sha256, sha256Hex, ed25519KeypairFromSeed, ed25519Sign, ed25519Verify, mldsa65KeypairFromSeed, mldsa65Sign, mldsa65Verify, verifyHandshakeRequestJson, intersectCapabilitiesJson } = nativeBinding
 
 module.exports.SPEC_VERSION = SPEC_VERSION
 module.exports.canonicalize = canonicalize
@@ -322,3 +322,5 @@ module.exports.ed25519Verify = ed25519Verify
 module.exports.mldsa65KeypairFromSeed = mldsa65KeypairFromSeed
 module.exports.mldsa65Sign = mldsa65Sign
 module.exports.mldsa65Verify = mldsa65Verify
+module.exports.verifyHandshakeRequestJson = verifyHandshakeRequestJson
+module.exports.intersectCapabilitiesJson = intersectCapabilitiesJson
