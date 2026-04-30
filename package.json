@@ -1,0 +1,34 @@
+{
+  "name": "@handshake/handshake",
+  "version": "0.1.0",
+  "description": "Handshake protocol — TypeScript SDK. Thin NAPI-RS wrapper over the canonical Rust core.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "index.d.ts",
+    "*.node"
+  ],
+  "napi": {
+    "name": "handshake",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "scripts": {
+    "build:native": "napi build --platform --release --js index.cjs --dts index.d.ts",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "pnpm run build:native && pnpm run build:ts",
+    "test": "node --test dist/*.test.js"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4",
+    "@types/node": "^20.16.5",
+    "typescript": "^5.6.2"
+  }
+}

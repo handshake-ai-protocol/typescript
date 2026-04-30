@@ -1,0 +1,26 @@
+[package]
+name = "handshake-ts"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "NAPI-RS Node.js bindings to the canonical Rust Handshake core."
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Sibling-path dep on the canonical Rust core. THE point of the FFI
+# architecture — see docs/decisions/0006-rust-core-authoritative.md.
+handshake = { path = "../handshake-rs" }
+napi = { version = "2", default-features = false, features = ["napi8"] }
+napi-derive = "2"
+serde_json = "1.0"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
