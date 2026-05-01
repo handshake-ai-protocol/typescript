@@ -59,3 +59,23 @@ export * as models from "./models.js";
 export * as verify from "./verify.js";
 export { verifyHandshakeRequest, intersectCapabilities } from "./verify.js";
 export type { VerifyResult, VerifyOptions } from "./verify.js";
+
+export {
+  Handshake,
+  RegistryError,
+  type HandshakeContext,
+  type HandshakeOptions,
+  type DelegateOptions,
+  type HandshakeStartOptions,
+  type RecordReceiptOptions,
+  type RecordReceiptOutcome,
+} from "./client.js";
+export {
+  SoftwareKMS,
+  CloudHSMPKCS11,
+  AzureKeyVaultHSM,
+  GCPCloudHSM,
+  KmsError,
+  type KeyManagementProvider,
+  type SignatureAlgorithm as KmsAlgorithm,
+} from "./kms.js";
