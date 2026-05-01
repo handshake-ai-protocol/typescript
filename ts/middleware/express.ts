@@ -15,6 +15,13 @@
 // treated as a server misconfiguration and every request is rejected with
 // HTTP 500. This is fail-closed by design — the previous decode-only
 // behaviour was an auth bypass.
+//
+// SECURITY: `nonceStore` or `allowInMemoryNonces: true` must be supplied
+// explicitly. Omitting both is treated as a server misconfiguration and every
+// request is rejected with HTTP 500. This is fail-closed by design: the
+// process-local nonce store is only safe for single-instance deployments, so
+// silently defaulting to it in a multi-instance deployment would leave a
+// cross-pod replay window open.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -101,14 +108,25 @@ export interface ExpressHandshakeOptions {
   /**
    * Injectable nonce store for cross-instance replay protection.
    *
-   * When not supplied the middleware relies solely on the process-local
-   * nonce tracking built into the Rust verifier core, which is **not**
-   * safe in multi-instance deployments (different pods/workers each have
-   * their own independent store).  Supply a shared backend (Redis,
-   * Postgres, …) so that a nonce consumed on one instance is rejected
+   * For multi-instance deployments this **must** be backed by a shared store
+   * (Redis, Postgres, …) so that a nonce consumed on one instance is rejected
    * everywhere within the freshness window.
+   *
+   * When not supplied and `allowInMemoryNonces` is not `true`, the middleware
+   * treats this as a server misconfiguration and rejects every request with
+   * HTTP 500.  To opt into a process-local store (acceptable for
+   * single-instance services or development), set `allowInMemoryNonces: true`.
    */
   nonceStore?: NonceStore;
+  /**
+   * Opt into a process-local `InMemoryNonceStore` when `nonceStore` is not
+   * supplied.  This is **not** safe for multi-instance deployments (each
+   * instance has an independent store so cross-pod replay is undetectable).
+   * Set to `true` only for single-instance services or local development;
+   * always supply an explicit `nonceStore` backend in production multi-instance
+   * environments.
+   */
+  allowInMemoryNonces?: boolean;
 }
 
 function readHeader(req: ExpressLikeRequest, name: string): string | undefined {
@@ -133,13 +151,15 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
  * Returns an Express-style middleware (req, res, next).
  *
  * The middleware:
- *   1. Parses + schema-validates the `Handshake-Request` header.
- *   2. Cryptographically verifies it (chain walk + signature + audience +
+ *   1. Fails closed with HTTP 500 if `nonceStore` is absent and
+ *      `allowInMemoryNonces` is not `true` (server misconfiguration).
+ *   2. Parses + schema-validates the `Handshake-Request` header.
+ *   3. Cryptographically verifies it (chain walk + signature + audience +
  *      freshness + replay) under the configured `keys` and `receiverDid`.
- *   3. If a `nonceStore` is supplied, performs an additional cross-instance
- *      replay check before calling `next()`.
- *   4. Mounts `req.handshake = { request }` so handlers can read it.
- *   5. After the response finishes (`res.on("finish")`), opens a HandshakeContext
+ *   4. Performs a cross-instance replay check via the configured nonce store
+ *      before calling `next()`.
+ *   5. Mounts `req.handshake = { request }` so handlers can read it.
+ *   6. After the response finishes (`res.on("finish")`), opens a HandshakeContext
  *      and records a Receipt summarising status + path. Failures are swallowed
  *      so the response path is never blocked.
  */
@@ -149,13 +169,38 @@ export function expressHandshake(opts: ExpressHandshakeOptions) {
   const resolveAction = opts.resolveAction ?? ((req) => `${req.method ?? "GET"} ${req.url ?? "/"}`);
   const resolveCapability = opts.resolveCapabilityName ?? (() => "http.server.handle");
   const now = opts.now ?? (() => new Date().toISOString());
-  const nonceStore = opts.nonceStore ?? null;
+
+  // Resolve the nonce store once at construction time, mirroring the Go
+  // middleware's fail-closed pattern.
+  let resolvedNonceStore: NonceStore | null;
+  let nonceMisconfigured: boolean;
+  if (opts.nonceStore != null) {
+    resolvedNonceStore = opts.nonceStore;
+    nonceMisconfigured = false;
+  } else if (opts.allowInMemoryNonces === true) {
+    resolvedNonceStore = new InMemoryNonceStore();
+    nonceMisconfigured = false;
+  } else {
+    resolvedNonceStore = null;
+    nonceMisconfigured = true;
+  }
 
   return function middleware(
     req: ExpressLikeRequest,
     res: ServerResponse,
     next: ExpressNextFn,
   ): void {
+    // Fail-closed: require callers to be explicit about replay protection.
+    if (nonceMisconfigured) {
+      writeJson(res, 500, {
+        error: "handshake middleware misconfigured: nonceStore is required; " +
+          "supply a distributed NonceStore or set allowInMemoryNonces: true " +
+          "to opt into process-local replay protection " +
+          "(not safe for multi-instance deployments)",
+      });
+      return;
+    }
+
     // Fail-closed: missing key resolver or receiverDid is a server
     // misconfiguration, not a client error.
     if (!opts.keys) {
@@ -198,40 +243,38 @@ export function expressHandshake(opts: ExpressHandshakeOptions) {
       return;
     }
 
-    // Cross-instance replay check using the injectable nonce store.
-    if (nonceStore !== null) {
-      const nonce = typeof request["nonce"] === "string" ? request["nonce"] : null;
-      if (nonce !== null) {
-        const replayResult = nonceStore.checkAndRecord(nonce);
-        if (replayResult instanceof Promise) {
-          // Async nonce store: bridge the promise into the middleware flow.
-          replayResult.then((isReplay) => {
-            if (isReplay) {
-              writeJson(res, 403, {
-                error: "handshake_rejected",
-                error_code: "replay_detected",
-                rejected_at_step: "nonce_check",
-                detail: "nonce already consumed (replay)",
-                rejected_delegation_id: null,
-              });
-              return;
-            }
-            finishRequest(req, res, next, request, hs, emitReceipt, resolveAction, resolveCapability);
-          }).catch((_err: unknown) => {
-            writeJson(res, 500, { error: "internal server error" });
-          });
-          return;
-        }
-        if (replayResult) {
-          writeJson(res, 403, {
-            error: "handshake_rejected",
-            error_code: "replay_detected",
-            rejected_at_step: "nonce_check",
-            detail: "nonce already consumed (replay)",
-            rejected_delegation_id: null,
-          });
-          return;
-        }
+    // Cross-instance replay check — always performed via the nonce store.
+    const nonce = typeof request["nonce"] === "string" ? request["nonce"] : null;
+    if (nonce !== null) {
+      const replayResult = resolvedNonceStore!.checkAndRecord(nonce);
+      if (replayResult instanceof Promise) {
+        // Async nonce store: bridge the promise into the middleware flow.
+        replayResult.then((isReplay) => {
+          if (isReplay) {
+            writeJson(res, 403, {
+              error: "handshake_rejected",
+              error_code: "replay_detected",
+              rejected_at_step: "nonce_check",
+              detail: "nonce already consumed (replay)",
+              rejected_delegation_id: null,
+            });
+            return;
+          }
+          finishRequest(req, res, next, request, hs, emitReceipt, resolveAction, resolveCapability);
+        }).catch((_err: unknown) => {
+          writeJson(res, 500, { error: "internal server error" });
+        });
+        return;
+      }
+      if (replayResult) {
+        writeJson(res, 403, {
+          error: "handshake_rejected",
+          error_code: "replay_detected",
+          rejected_at_step: "nonce_check",
+          detail: "nonce already consumed (replay)",
+          rejected_delegation_id: null,
+        });
+        return;
       }
     }
 
