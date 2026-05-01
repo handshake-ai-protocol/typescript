@@ -34,6 +34,53 @@ export interface ExpressLikeRequest extends IncomingMessage {
 
 export type ExpressNextFn = (err?: unknown) => void;
 
+/**
+ * Injectable nonce store for cross-instance replay protection.
+ *
+ * Production deployments should back this with a shared store (Redis,
+ * Postgres, etc.) so that a nonce consumed by one pod/worker/process
+ * is rejected by all others within the freshness window.
+ *
+ * The built-in in-process store used by the Rust verifier core is only
+ * safe for single-instance deployments; this interface allows callers to
+ * supply a durable or distributed alternative.
+ *
+ * `checkAndRecord` must be safe to call from concurrent request handlers.
+ * Return a Promise if the backend requires async I/O.
+ */
+export interface NonceStore {
+  /**
+   * Return `true` if `nonce` was already seen (replay detected), else
+   * record it and return `false`.
+   */
+  checkAndRecord(nonce: string): boolean | Promise<boolean>;
+}
+
+/**
+ * Default in-process nonce store (process-local; not suitable for
+ * multi-instance deployments).
+ *
+ * **Limitations:**
+ * - **Memory growth:** nonces are stored in a `Set` indefinitely for the
+ *   lifetime of the process. Under sustained traffic this grows without bound.
+ *   For long-lived services use a TTL-aware backend (e.g. Redis `SET EX`) or
+ *   implement eviction in a custom `NonceStore`.
+ * - **Single process only:** each instance keeps an independent store, so a
+ *   nonce consumed on one pod/worker is not known to others. Cross-instance
+ *   replay protection requires a shared backend.
+ *
+ * Use only for single-instance services, short-lived processes, or tests.
+ */
+export class InMemoryNonceStore implements NonceStore {
+  private readonly seen = new Set<string>();
+
+  checkAndRecord(nonce: string): boolean {
+    if (this.seen.has(nonce)) return true;
+    this.seen.add(nonce);
+    return false;
+  }
+}
+
 export interface ExpressHandshakeOptions {
   /** Receipt-emitting Handshake client (signs as THIS service). */
   handshake: Handshake;
@@ -51,6 +98,17 @@ export interface ExpressHandshakeOptions {
   resolveAction?: (req: ExpressLikeRequest) => string;
   resolveCapabilityName?: (req: ExpressLikeRequest) => string;
   emitReceipt?: boolean;
+  /**
+   * Injectable nonce store for cross-instance replay protection.
+   *
+   * When not supplied the middleware relies solely on the process-local
+   * nonce tracking built into the Rust verifier core, which is **not**
+   * safe in multi-instance deployments (different pods/workers each have
+   * their own independent store).  Supply a shared backend (Redis,
+   * Postgres, …) so that a nonce consumed on one instance is rejected
+   * everywhere within the freshness window.
+   */
+  nonceStore?: NonceStore;
 }
 
 function readHeader(req: ExpressLikeRequest, name: string): string | undefined {
@@ -78,8 +136,10 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
  *   1. Parses + schema-validates the `Handshake-Request` header.
  *   2. Cryptographically verifies it (chain walk + signature + audience +
  *      freshness + replay) under the configured `keys` and `receiverDid`.
- *   3. Mounts `req.handshake = { request }` so handlers can read it.
- *   4. After the response finishes (`res.on("finish")`), opens a HandshakeContext
+ *   3. If a `nonceStore` is supplied, performs an additional cross-instance
+ *      replay check before calling `next()`.
+ *   4. Mounts `req.handshake = { request }` so handlers can read it.
+ *   5. After the response finishes (`res.on("finish")`), opens a HandshakeContext
  *      and records a Receipt summarising status + path. Failures are swallowed
  *      so the response path is never blocked.
  */
@@ -89,6 +149,7 @@ export function expressHandshake(opts: ExpressHandshakeOptions) {
   const resolveAction = opts.resolveAction ?? ((req) => `${req.method ?? "GET"} ${req.url ?? "/"}`);
   const resolveCapability = opts.resolveCapabilityName ?? (() => "http.server.handle");
   const now = opts.now ?? (() => new Date().toISOString());
+  const nonceStore = opts.nonceStore ?? null;
 
   return function middleware(
     req: ExpressLikeRequest,
@@ -137,35 +198,85 @@ export function expressHandshake(opts: ExpressHandshakeOptions) {
       return;
     }
 
-    req.handshake = { request };
-
-    if (emitReceipt) {
-      res.on("finish", () => {
-        // Best-effort post-response receipt; never throws into the request
-        // lifecycle.
-        void (async () => {
-          try {
-            const cap = (request["capability"] ?? {}) as { name?: string };
-            const ctx: HandshakeContext = hs.handshake({
-              aud: typeof request["iss"] === "string" ? (request["iss"] as string) : "did:hsk:unknown",
-              capability: { name: cap.name ?? resolveCapability(req) },
-              delegationChain: [],
-            });
-            const receiptOpts: RecordReceiptOptions = {
-              action: resolveAction(req),
-              result: res.statusCode < 400 ? "ok" : "error",
-              resultPayload: { status: res.statusCode, path: req.url },
-              resultSummary: { transport: "express", status: res.statusCode },
-            };
-            const out = await hs.recordReceipt(ctx, receiptOpts);
-            if (req.handshake) req.handshake.receiptId = out.receiptId;
-          } catch {
-            // intentionally swallowed
-          }
-        })();
-      });
+    // Cross-instance replay check using the injectable nonce store.
+    if (nonceStore !== null) {
+      const nonce = typeof request["nonce"] === "string" ? request["nonce"] : null;
+      if (nonce !== null) {
+        const replayResult = nonceStore.checkAndRecord(nonce);
+        if (replayResult instanceof Promise) {
+          // Async nonce store: bridge the promise into the middleware flow.
+          replayResult.then((isReplay) => {
+            if (isReplay) {
+              writeJson(res, 403, {
+                error: "handshake_rejected",
+                error_code: "replay_detected",
+                rejected_at_step: "nonce_check",
+                detail: "nonce already consumed (replay)",
+                rejected_delegation_id: null,
+              });
+              return;
+            }
+            finishRequest(req, res, next, request, hs, emitReceipt, resolveAction, resolveCapability);
+          }).catch((_err: unknown) => {
+            writeJson(res, 500, { error: "internal server error" });
+          });
+          return;
+        }
+        if (replayResult) {
+          writeJson(res, 403, {
+            error: "handshake_rejected",
+            error_code: "replay_detected",
+            rejected_at_step: "nonce_check",
+            detail: "nonce already consumed (replay)",
+            rejected_delegation_id: null,
+          });
+          return;
+        }
+      }
     }
 
-    next();
+    finishRequest(req, res, next, request, hs, emitReceipt, resolveAction, resolveCapability);
   };
+}
+
+function finishRequest(
+  req: ExpressLikeRequest,
+  res: ServerResponse,
+  next: ExpressNextFn,
+  request: Record<string, unknown>,
+  hs: Handshake,
+  emitReceipt: boolean,
+  resolveAction: (req: ExpressLikeRequest) => string,
+  resolveCapability: (req: ExpressLikeRequest) => string,
+): void {
+  req.handshake = { request };
+
+  if (emitReceipt) {
+    res.on("finish", () => {
+      // Best-effort post-response receipt; never throws into the request
+      // lifecycle.
+      void (async () => {
+        try {
+          const cap = (request["capability"] ?? {}) as { name?: string };
+          const ctx: HandshakeContext = hs.handshake({
+            aud: typeof request["iss"] === "string" ? (request["iss"] as string) : "did:hsk:unknown",
+            capability: { name: cap.name ?? resolveCapability(req) },
+            delegationChain: [],
+          });
+          const receiptOpts: RecordReceiptOptions = {
+            action: resolveAction(req),
+            result: res.statusCode < 400 ? "ok" : "error",
+            resultPayload: { status: res.statusCode, path: req.url },
+            resultSummary: { transport: "express", status: res.statusCode },
+          };
+          const out = await hs.recordReceipt(ctx, receiptOpts);
+          if (req.handshake) req.handshake.receiptId = out.receiptId;
+        } catch {
+          // intentionally swallowed
+        }
+      })();
+    });
+  }
+
+  next();
 }
