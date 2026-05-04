@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Zod schemas mirroring the v0.2.3 JSON Schemas.
 //
 // Each schema's runtime parse + serialize must reproduce the bytes the

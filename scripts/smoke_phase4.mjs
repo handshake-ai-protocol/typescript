@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // End-to-end smoke for the TS SDK against a live Phase-3 Registry.
 //
 // Boots an admin tenant + producer DID, signs a HandshakeRequest via the

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // MCP (Model Context Protocol) handshake adapter.
 //
 // Wire-binding: the signed HandshakeRequest envelope is base64url-encoded

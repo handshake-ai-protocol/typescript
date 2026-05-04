@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // High-level Handshake client — `Handshake`, `HandshakeContext`.
 //
 // TypeScript mirror of `handshake.client.Handshake` (Python). One per

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! NAPI-RS FFI shim — Node.js bindings for the canonical Rust Handshake core.
 //!
 //! Every cryptographic function here forwards directly into the `handshake`

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Express middleware — verifies the inbound HandshakeRequest header and
 // emits a Receipt once the route handler resolves.
 //

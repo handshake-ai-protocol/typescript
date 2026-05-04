@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Phase 2 chain-walk verifier — TypeScript facade.
 //
 // Wraps the NAPI-RS FFI surface (`verifyHandshakeRequestJson` /

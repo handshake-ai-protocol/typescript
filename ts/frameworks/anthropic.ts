@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Anthropic SDK wrapper — `wrap(client)` for `@anthropic-ai/sdk`.
 //
 // Drop-in usage:

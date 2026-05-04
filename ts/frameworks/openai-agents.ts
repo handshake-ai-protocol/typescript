@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // OpenAI Agents SDK wrapper.
 //
 // `wrap({handshake, modelDid})` returns a runner with `.run(prompt)` that

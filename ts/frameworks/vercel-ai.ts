@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Vercel AI SDK wrapper — `wrapGenerateText({handshake, ...})`.
 //
 // Exposes a `wrappedGenerateText(opts) → {text, receiptId}` that mirrors the

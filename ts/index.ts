@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Handshake protocol — TypeScript SDK façade.
 //
 // Re-exports the NAPI-RS native primitives (built from src/lib.rs) and

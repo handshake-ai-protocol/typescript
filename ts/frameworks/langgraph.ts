@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // LangGraph.js wrapper — `wrapNode(fn, ...)` audits each graph step.
 
 import { Handshake } from "../client.js";

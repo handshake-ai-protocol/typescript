@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // AP2 (Agent Payments Protocol) handshake adapter.
 //
 // Wire-binding: AP2 IntentMandates carry the signed HandshakeRequest under

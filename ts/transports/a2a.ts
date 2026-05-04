@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // A2A (Agent-to-Agent) handshake adapter.
 //
 // Wire-binding: the signed HandshakeRequest is attached to the JSON-RPC

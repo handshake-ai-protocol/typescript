@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Signing-key management — `KeyManagementProvider` interface + backends.
 //
 // Mirrors `handshake.kms` in the Python SDK: a swappable signing-key Protocol
