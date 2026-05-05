@@ -66,7 +66,10 @@ await adminPost("/v1/admin/dids", {
   primary_ed25519_pubkey_b64u: b64u(kms.publicKey()),
 });
 
-const hs = new Handshake({ registryUrl: REGISTRY, kms });
+// Mirror examples/_phase4_common.py:116 — pass adminToken so the
+// SDK's fetchReceipt / waitForAnchor calls send Authorization: Bearer
+// against a Registry that enforces auth on GET /v1/receipts/{id}.
+const hs = new Handshake({ registryUrl: REGISTRY, kms, adminToken });
 
 console.log("→ anthropic mock");
 const ant = wrapAnthropic(null, { handshake: hs });

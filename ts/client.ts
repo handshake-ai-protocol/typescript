@@ -74,6 +74,15 @@ export interface HandshakeOptions {
   kms: KeyManagementProvider;
   registryTimeoutMs?: number;
   offline?: boolean;
+  /**
+   * Bearer token for receipt-read endpoints (locked down by Registry
+   * commit 12cb4f0 "close unauthenticated receipt reads"). Required when
+   * calling fetchReceipt / waitForAnchor against a Registry that
+   * enforces auth on GET /v1/receipts/{id}; harmless when omitted
+   * against a Registry with anonymous reads enabled. Mirrors
+   * packages/handshake-py/python/handshake/client.py:Handshake.admin_token.
+   */
+  adminToken?: string;
 }
 
 export interface DelegateOptions {
@@ -112,6 +121,7 @@ export class Handshake {
   readonly registryUrl: string;
   readonly kms: KeyManagementProvider;
   readonly registryTimeoutMs: number;
+  readonly adminToken?: string;
   offline: boolean;
 
   constructor(opts: HandshakeOptions) {
@@ -119,6 +129,7 @@ export class Handshake {
     this.kms = opts.kms;
     this.registryTimeoutMs = opts.registryTimeoutMs ?? 10_000;
     this.offline = opts.offline ?? false;
+    this.adminToken = opts.adminToken;
   }
 
   delegate(opts: DelegateOptions): DelegationToken {
@@ -268,10 +279,17 @@ export class Handshake {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.registryTimeoutMs);
     try {
+      const headers: Record<string, string> = {};
+      if (body !== undefined) headers["content-type"] = "application/json";
+      // Mirror packages/handshake-py/python/handshake/client.py:_http_get_json
+      // bearer plumbing — Registry locked down GET /v1/receipts/{id} in
+      // commit 12cb4f0 ("close unauthenticated receipt reads"), so an
+      // adminToken-equipped client must send Authorization: Bearer.
+      if (this.adminToken) headers["authorization"] = `Bearer ${this.adminToken}`;
       const resp = await fetch(`${this.registryUrl}${path}`, {
         method,
         signal: controller.signal,
-        headers: body !== undefined ? { "content-type": "application/json" } : {},
+        headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       const text = await resp.text();
