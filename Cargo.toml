@@ -1,6 +1,6 @@
 [package]
 name = "handshake-ts"
-version = "0.2.4"
+version = "0.2.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "NAPI-RS Node.js bindings to the canonical Rust Handshake core."

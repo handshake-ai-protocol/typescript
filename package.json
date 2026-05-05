@@ -1,6 +1,6 @@
 {
   "name": "@handshake/handshake",
-  "version": "0.2.4",
+  "version": "0.2.3",
   "description": "Handshake protocol — TypeScript SDK. Thin NAPI-RS wrapper over the canonical Rust core.",
   "license": "Apache-2.0",
   "type": "module",
