@@ -15,12 +15,18 @@ import { wrapGenerateText } from "../dist/frameworks/vercel-ai.js";
 import { wrapNode } from "../dist/frameworks/langgraph.js";
 
 const REGISTRY = process.env.HANDSHAKE_REGISTRY ?? "http://localhost:8080";
+// Mirror examples/_phase4_common.py:_admin_token() — explicit env wins,
+// REPL_ID-derived fallback. The Registry consumes HANDSHAKE_ADMIN_TOKEN
+// directly; without this fallback chain the TS smoke would always send
+// the derived form even when the Registry was started with an explicit
+// token (mismatch → 403 bad_admin_token).
+const explicitToken = process.env.HANDSHAKE_ADMIN_TOKEN;
 const REPL_ID = process.env.REPL_ID;
-if (!REPL_ID) {
-  console.error("REPL_ID is required to derive the admin token.");
+if (!explicitToken && !REPL_ID) {
+  console.error("HANDSHAKE_ADMIN_TOKEN or REPL_ID is required to derive the admin token.");
   process.exit(2);
 }
-const adminToken = createHash("sha256").update(`handshake-admin::${REPL_ID}`).digest("hex");
+const adminToken = explicitToken || createHash("sha256").update(`handshake-admin::${REPL_ID}`).digest("hex");
 
 async function adminPost(path, body) {
   const r = await fetch(`${REGISTRY}${path}`, {
