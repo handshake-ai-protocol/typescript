@@ -6,7 +6,7 @@
 // OpenAI Agents mock, Vercel AI mock). Asserts the receipts come back
 // anchored. Used by `make phase4` and the architect review.
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import { Handshake, SoftwareKMS } from "../dist/index.js";
 import { wrap as wrapAnthropic } from "../dist/frameworks/anthropic.js";
@@ -15,18 +15,13 @@ import { wrapGenerateText } from "../dist/frameworks/vercel-ai.js";
 import { wrapNode } from "../dist/frameworks/langgraph.js";
 
 const REGISTRY = process.env.HANDSHAKE_REGISTRY ?? "http://localhost:8080";
-// Mirror examples/_phase4_common.py:_admin_token() — explicit env wins,
-// REPL_ID-derived fallback. The Registry consumes HANDSHAKE_ADMIN_TOKEN
-// directly; without this fallback chain the TS smoke would always send
-// the derived form even when the Registry was started with an explicit
-// token (mismatch → 403 bad_admin_token).
-const explicitToken = process.env.HANDSHAKE_ADMIN_TOKEN;
-const REPL_ID = process.env.REPL_ID;
-if (!explicitToken && !REPL_ID) {
-  console.error("HANDSHAKE_ADMIN_TOKEN or REPL_ID is required to derive the admin token.");
+// HANDSHAKE_ADMIN_TOKEN must match the token the Registry was started
+// with; mismatch → 403 bad_admin_token.
+const adminToken = process.env.HANDSHAKE_ADMIN_TOKEN;
+if (!adminToken) {
+  console.error("HANDSHAKE_ADMIN_TOKEN environment variable is required.");
   process.exit(2);
 }
-const adminToken = explicitToken || createHash("sha256").update(`handshake-admin::${REPL_ID}`).digest("hex");
 
 async function adminPost(path, body) {
   const r = await fetch(`${REGISTRY}${path}`, {
