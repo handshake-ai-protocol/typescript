@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "handshake"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "base64",
  "chrono",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "handshake-ts"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "handshake",
  "napi",
